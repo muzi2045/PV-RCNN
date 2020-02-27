@@ -2,11 +2,19 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from .mlp import MLP
+from .layers import MLP
 
 
 class RefinementLayer(nn.Module):
-    """Use pooled features to refine proposals."""
+    """
+    Uses pooled features to refine proposals.
+
+    TODO: Pass class predictions from proposals since this
+        module only predicts confidence.
+    TODO: Implement RefinementLoss.
+    TODO: Decide if decode box predictions / apply box
+        deltas here or elsewhere.
+    """
 
     def __init__(self, cfg):
         super(RefinementLayer, self).__init__()
@@ -14,13 +22,20 @@ class RefinementLayer(nn.Module):
         self.cfg = cfg
 
     def build_mlp(self, cfg):
-        channels = cfg.REFINEMENT.MLPS + [cfg.NUM_CLASSES * (cfg.BOX_DOF + 1)]
+        """
+        TODO: Check if should use bias.
+        """
+        channels = cfg.REFINEMENT.MLPS + [cfg.BOX_DOF + 1]
         mlp = MLP(channels, bias=True, bn=False, relu=[True, False])
         return mlp
 
-    def inference(self, points, features):
-        boxes, scores = self(points, features)
-        scores = F.softmax(scores, dim=-1)
+    def apply_refinements(self, box_deltas, boxes):
+        raise NotImplementedError
+
+    def inference(self, points, features, boxes):
+        box_deltas, scores = self(points, features, boxes)
+        boxes = self.apply_refinements(box_deltas, boxes)
+        scores = scores.sigmoid()
         positive = 1 - scores[..., -1:]
         _, indices = torch.topk(positive, k=self.cfg.PROPOSAL.TOPK, dim=1)
         indices = indices.expand(-1, -1, self.cfg.NUM_CLASSES)
@@ -29,9 +44,7 @@ class RefinementLayer(nn.Module):
         boxes = boxes.gather(1, box_indices)
         return boxes, scores, indices
 
-    def forward(self, points, features, proposal_boxes):
-        features = features.permute(0, 2, 1)
-        refinements = self.mlp(features)
-        box_deltas, scores = self.reorganize_predictions(refinements)
-        boxes = self.apply_refinements(box_deltas, proposal_boxes)
-        return boxes, scores
+    def forward(self, points, features, boxes):
+        refinements = self.mlp(features.permute(0, 2, 1))
+        box_deltas, scores = refinements.split(1)
+        return box_deltas, scores

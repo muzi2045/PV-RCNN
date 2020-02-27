@@ -1,5 +1,5 @@
 import torch
-import numpy as np
+import math
 from torch import nn
 import torch.nn.functional as F
 
@@ -13,23 +13,26 @@ class ProposalLayer(nn.Module):
         super(ProposalLayer, self).__init__()
         self.cfg = cfg
         self.conv_cls = nn.Conv2d(
-            cfg.PROPOSAL.C_IN, cfg.NUM_CLASSES * cfg.NUM_YAW, 1)
+            cfg.PROPOSAL.C_IN, (cfg.NUM_CLASSES + 1) * cfg.NUM_YAW, 1)
         self.conv_reg = nn.Conv2d(
             cfg.PROPOSAL.C_IN, cfg.NUM_CLASSES * cfg.NUM_YAW * cfg.BOX_DOF, 1)
-        nn.init.constant_(self.conv_cls.bias, (-np.log(1 - .01) / .01))
+        self._init_weights()
 
-    @torch.no_grad()
+    def _init_weights(self):
+        nn.init.constant_(self.conv_cls.bias, (-math.log(1 - .01) / .01))
+        nn.init.constant_(self.conv_reg.bias, 0)
+        for m in (self.conv_cls.weight, self.conv_reg.weight):
+            nn.init.normal_(m, std=0.01)
+
     def inference(self, feature_map):
         """TODO: Sigmoid and topk proposal indexing."""
         cls_map, reg_map = self(feature_map)
-        scores = cls_map.sigmoid()
-        class_idx = torch.arange(self.cfg.NUM_CLASSES)
-        class_idx = class_idx[None, :, None, None, None].expand_as(scores)
+        scores = cls_map.softmax(1)
         raise NotImplementedError
 
     def reshape_cls(self, cls_map):
         B, _, ny, nx = cls_map.shape
-        shape = (B, self.cfg.NUM_CLASSES, self.cfg.NUM_YAW, ny, nx)
+        shape = (B, self.cfg.NUM_CLASSES + 1, self.cfg.NUM_YAW, ny, nx)
         cls_map = cls_map.view(shape)
         return cls_map
 
@@ -48,12 +51,17 @@ class ProposalLayer(nn.Module):
 class ProposalLoss(nn.Module):
     """
     Notation: (P_i, G_i, M_i) ~ (predicted, ground truth, mask)
-    TODO: Binned angle loss.
+    TODO: Replace with compiled cuda focal loss.
     """
 
     def __init__(self, cfg):
         super(ProposalLoss, self).__init__()
         self.cfg = cfg
+
+    def masked_average(self, loss, mask):
+        mask = mask.type_as(loss)
+        loss = (loss * mask).sum() / mask.sum()
+        return loss
 
     def reg_loss(self, P_reg, G_reg, M_reg):
         """Loss applied at all positive sites."""
@@ -61,23 +69,21 @@ class ProposalLoss(nn.Module):
         G_xyz, G_wlh, G_yaw = G_reg.split([3, 3, 1], dim=-1)
         loss_xyz = F.smooth_l1_loss(P_xyz, G_xyz, reduction='none')
         loss_wlh = F.smooth_l1_loss(P_wlh, G_wlh, reduction='none')
-        loss_yaw = F.smooth_l1_loss(P_yaw, G_yaw, reduction='none') / np.pi
-        loss = ((loss_xyz + loss_wlh + loss_yaw) * M_reg.type_as(loss_xyz)).sum()
+        loss_yaw = F.smooth_l1_loss(P_yaw, G_yaw, reduction='none') / math.pi
+        loss = self.masked_average(loss_xyz + loss_wlh + loss_yaw, M_reg)
         return loss
 
     def cls_loss(self, P_cls, G_cls, M_cls):
         """Loss is applied at all non-ignore sites. Assumes logit scores."""
-        loss = sigmoid_focal_loss(P_cls, G_cls, reduction='none')
-        loss = (loss * M_cls.type_as(loss)).sum()
+        loss = sigmoid_focal_loss(P_cls, G_cls.float(), reduction='none')
+        loss = self.masked_average(loss, M_cls)
         return loss
 
     def forward(self, item):
-        """TODO: Decide on cleaner input representation."""
         keys = ['G_cls', 'M_cls', 'P_cls', 'G_reg', 'M_reg', 'P_reg']
         G_cls, M_cls, P_cls, G_reg, M_reg, P_reg = map(item.get, keys)
-        num_foreground = M_reg.sum()
-        cls_loss = self.cls_loss(P_cls, G_cls, M_cls) / num_foreground
-        reg_loss = self.reg_loss(P_reg, G_reg, M_reg) / num_foreground
+        cls_loss = self.cls_loss(P_cls, G_cls, M_cls)
+        reg_loss = self.reg_loss(P_reg, G_reg, M_reg)
         loss = cls_loss + self.cfg.TRAIN.LAMBDA * reg_loss
         losses = dict(cls_loss=cls_loss, reg_loss=reg_loss, loss=loss)
         return losses
