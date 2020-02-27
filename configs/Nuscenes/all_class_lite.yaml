@@ -1,0 +1,89 @@
+MAX_VOXELS: 20000
+MAX_OCCUPANCY: 5
+VOXEL_SIZE: [0.05, 0.05, 0.1]
+GRID_BOUNDS: [0, -40, -3, 70.4, 40, 1]
+
+ANCHORS: [
+  {
+        'names': ['car'],
+        'wlh': [1.95017717, 4.60718145, 1.72270761],
+        'yaw': [0, np.pi / 2],
+        'iou_thresh': [0.35, 0.55],
+        'center_z': -0.93897414,
+    },
+    {
+        'names': ['bicycle'],
+        'wlh': [0.60058911, 1.68452161, 1.27192197],
+        'yaw': [0, np.pi / 2],
+        'iou_thresh': [0.20, 0.25],
+        'center_z': -1.03743013,
+    },
+    {
+        'names': ['bus'],
+        'wlh': [2.94046906, 11.1885991, 3.47030982],
+        'yaw': [0, np.pi / 2],
+        'iou_thresh': [0.35, 0.55],
+        'center_z': -0.0715754,
+    },
+    {
+        'names': ['construction_vehicle'],
+        'wlh': [2.73050468, 6.38352896, 3.13312415],
+        'yaw': [0, np.pi / 2],
+        'iou_thresh': [0.35, 0.6],
+        'center_z': -0.08168083,
+    },
+    {
+        'names': ['motorcycle'],
+        'wlh': [0.76279481, 2.09973778, 1.44403034],
+        'yaw': [0, np.pi / 2],
+        'iou_thresh': [0.20, 0.35],
+        'center_z': -0.99194854,
+    },
+    {
+        'names': ['pedestrian'],
+        'wlh': [0.66344886, 0.7256437, 1.75748069],
+        'yaw': [0, np.pi / 2],
+        'iou_thresh': [0.20, 0.35],
+        'center_z': -0.73911038,
+    },
+    {
+        'names': ['traffic_cone'],
+        'wlh': [0.39694519, 0.40359262, 1.06232151],
+        'yaw': [0, np.pi / 2],
+        'iou_thresh': [0.20, 0.35],
+        'center_z': -1.27868911,
+    },
+    {
+        'names': ['trailer'],
+        'wlh': [2.87427237, 12.01320693, 3.81509561],
+        'yaw': [0, np.pi / 2],
+        'iou_thresh': [0.20, 0.35],
+        'center_z': 0.22228277,
+    },
+    {
+        'names': ['truck'],
+        'wlh': [2.4560939, 6.73778078, 2.73004906],
+        'yaw': [0, np.pi / 2],
+        'iou_thresh': [0.20, 0.35],
+        'center_z': -0.37937912,
+    },
+    {
+        'names': ['barrier'],
+        'wlh': [2.49008838, 0.48578221, 0.98297065],
+        'yaw': [0, np.pi / 2],
+        'iou_thresh': [0.20, 0.35],
+        'center_z': -1.27247968,
+    },
+]
+NUM_CLASSES: 9
+CNN: 'SpMiddleFHDLite'
+TRAIN:
+  BATCH_SIZE: 2
+  LAMBDA: 0.1
+  LR: 1e-4
+AUG:
+  NUM_SAMPLE_OBJECTS: [15, 0, 0]
+DATA:
+  CACHEDIR: './'
+  SPLITDIR: './'
+  ROOTDIR: './'

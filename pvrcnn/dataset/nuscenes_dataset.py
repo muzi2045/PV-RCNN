@@ -7,11 +7,12 @@ import os.path as osp
 from torch.utils.data import Dataset
 
 from pvrcnn.core import ProposalTargetAssigner, AnchorGenerator
-from .kitti_utils import read_calib, read_label, read_velo
+# from .kitti_utils import read_calib, read_label, read_velo
 from .augmentation import ChainedAugmentation
 from .database_sampler import DatabaseBuilder
 
-class KittiDataset(Dataset):
+
+class UDIDataset(Dataset):
     """
     TODO: This class should certainly not need
     access to anchors. Find better place to
@@ -19,7 +20,7 @@ class KittiDataset(Dataset):
     """
 
     def __init__(self, cfg, split):
-        super(KittiDataset, self).__init__()
+        super(UDIDataset, self).__init__()
         self.split = split
         self.rootdir = cfg.DATA.ROOTDIR
         self.load_annotations(cfg)
