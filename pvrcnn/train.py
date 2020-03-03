@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from pvrcnn.detector import ProposalLoss, PV_RCNN
 from pvrcnn.core import cfg, TrainPreprocessor, VisdomLinePlotter
 from pvrcnn.dataset import KittiDatasetTrain
+from pvrcnn.dataset import UDIDatasetTrain
 
 
 def build_train_dataloader(cfg, preprocessor):

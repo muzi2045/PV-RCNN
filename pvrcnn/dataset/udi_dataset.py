@@ -3,6 +3,7 @@ import pickle
 import numpy as np
 import torch
 import os
+import json
 from copy import deepcopy
 import os.path as osp
 from torch.utils.data import Dataset
@@ -12,34 +13,63 @@ from .kitti_utils import read_calib, read_label, read_velo
 from .augmentation import ChainedAugmentation
 from .database_sampler import DatabaseBuilder
 
+
+def read_label(label_filename):
+    with open(label_path, encoding='utf-8') as f:
+            res = f.read()
+    result = json.loads(res)
+    boxes = result["elem"]
+    boxes_list = []
+    for box in boxes:
+        box_id = box["id"]
+        box_loc = box["position"]
+        box_size = box["size"]
+        box_yaw = box["yaw"]
+        box = np.array([box_id, box_loc["x"], box_loc["y"], box_loc["z"],
+                        box_size["width"], box_size["depth"], box_size["height"],
+                        box_yaw], dtype=np.float)
+        boxes_list.append(box)
+    return boxes_list
+
+def read_velo(velo_filename):
+    scan = np.fromfile(velo_filename, dtype=np.float32)
+    scan = scan.reshape((-1, 4))
+    return scan
+
+
 class UDIDataset(Dataset):
 
     def __init__(self, cfg, split='val'):
         super(UDIDataset, self).__init__()
         self.cfg = cfg
-        self.split = split
+        # self.split = split
         self.load_annotations(cfg)
 
     def __len__(self):
         return len(self.inds)
 
-    def read_splitfile(self, cfg):
-        fpath = osp.join(cfg.DATA.SPLITDIR, f'{self.split}.txt')
-        self.inds = np.loadtxt(fpath, dtype=np.int32).tolist()
+    def read_inds(self, cfg):
+        inds = []
+        lidar_root_path = osp.join(cfg.DATA.ROOTDIR, "lidar")
+        filenames = os.listdir(lidar_root_path)
+        for filename in tqdm(filenames):
+            index = filename.split(".")[0]
+            inds.append(int(index))
+        self.inds = inds.sort()
 
     def read_cached_annotations(self, cfg):
-        fpath = osp.join(cfg.DATA.CACHEDIR, f'{self.split}.pkl')
+        fpath = osp.join(cfg.DATA.CACHEDIR, 'infos_udi_train.pkl')
         with open(fpath, 'rb') as f:
             self.annotations = pickle.load(f)
         print(f'Found cached annotations: {fpath}')
 
     def cache_annotations(self, cfg):
-        fpath = osp.join(cfg.DATA.CACHEDIR, f'{self.split}.pkl')
+        fpath = osp.join(cfg.DATA.CACHEDIR, 'infos_udi_train.pkl')
         with open(fpath, 'wb') as f:
             pickle.dump(self.annotations, f)
 
     def load_annotations(self, cfg):
-        self.read_splitfile(cfg)
+        self.read_inds(cfg)
         try:
             self.read_cached_annotations(cfg)
         except FileNotFoundError:
@@ -48,28 +78,26 @@ class UDIDataset(Dataset):
             self.cache_annotations(cfg)
 
     def _path_helper(self, folder, idx, suffix):
-        return osp.join(self.cfg.DATA.ROOTDIR, folder, f'{idx:06d}.{suffix}')
+        return osp.join(self.cfg.DATA.ROOTDIR, folder, f'{idx}.{suffix}')
 
     def create_annotations(self):
         self.annotations = dict()
         for idx in tqdm(self.inds, desc='Generating annotations'):
             item = dict(
-                velo_path=self._path_helper('velodyne_reduced', idx, 'bin'),
-                calib=read_calib(self._path_helper('calib', idx, 'txt')),
-                objects=read_label(self._path_helper('label_2', idx, 'txt')), idx=idx,
-            )
+                velo_path=self._path_helper('lidar', idx, 'bin'),
+                # calib=read_calib(self._path_helper('calib', idx, 'txt')),
+                objects=read_label(osp.join(self.cfg.DATA.ROOTDIR, 'label', f'{idx}_bin.json')),
+                idx= idx
             self.annotations[idx] = self.make_simple_objects(item)
 
-    def make_simple_object(self, obj, calib):
-        """Converts from camera to velodyne frame."""
-        xyz = calib.C2V @ np.r_[calib.R0 @ obj.t, 1]
-        box = np.r_[xyz, obj.w, obj.l, obj.h, -obj.ry]
-        obj = dict(box=box, class_idx=obj.class_idx)
+    def make_simple_object(self, obj):
+        ## obj [class_id, x, y, z, w, l, h, yaw]
+        box = obj[1:]
+        obj = dict(box=box, class_idx=obj[0])
         return obj
 
     def make_simple_objects(self, item):
-        objects = [self.make_simple_object(
-            obj, item['calib']) for obj in item['objects']]
+        objects = [self.make_simple_object(obj) for obj in item['objects']]
         item['boxes'] = np.stack([obj['box'] for obj in objects])
         item['class_idx'] = np.r_[[obj['class_idx'] for obj in objects]]
         return item
