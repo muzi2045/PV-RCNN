@@ -42,6 +42,10 @@ class AnchorGenerator(nn.Module):
         pixel_size = torch.tensor(self.cfg.VOXEL_SIZE[:2]) * self.cfg.STRIDES[-1]
         lower, upper = torch.tensor(self.cfg.GRID_BOUNDS).view(2, 3)[:, :2]
         grid_shape = ((upper - lower) / pixel_size).long()
+        print("pixel_size:", pixel_size)
+        print("lower:", lower)
+        print("upper:", upper)
+        print("grid_shape:", grid_shape)
         return lower, upper, grid_shape
 
     def make_anchor_sizes(self, nx, ny):

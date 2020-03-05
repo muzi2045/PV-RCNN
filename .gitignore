@@ -17,5 +17,6 @@ notebooks/*
 
 pvrcnn/eval/*
 pvrcnn/core/viz_detections.py
+*.pyc
 
 images/proposals_*

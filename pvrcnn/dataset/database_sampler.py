@@ -76,7 +76,7 @@ class DatabaseBuilder:
 
     def __init__(self, cfg, annotations):
         self.cfg = cfg
-        self.fpath = osp.join(cfg.DATA.CACHEDIR, 'database.pkl')
+        self.fpath = osp.join(cfg.DATA.CACHEDIR, 'dataset.pkl')
         if osp.isfile(self.fpath):
             print(f'Found cached database: {self.fpath}')
             return

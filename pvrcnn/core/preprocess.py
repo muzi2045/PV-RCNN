@@ -15,11 +15,13 @@ class Preprocessor(nn.Module):
         self.cfg = cfg
 
     def build_voxel_generator(self, cfg):
-        voxel_generator = spconv.utils.VoxelGenerator(
+        voxel_generator = spconv.utils.VoxelGeneratorV2(
             voxel_size=cfg.VOXEL_SIZE,
             point_cloud_range=cfg.GRID_BOUNDS,
             max_voxels=cfg.MAX_VOXELS,
             max_num_points=cfg.MAX_OCCUPANCY,
+            full_mean=False,
+            block_filtering=False
         )
         return voxel_generator
 
@@ -27,7 +29,10 @@ class Preprocessor(nn.Module):
         """Voxelize points and prefix coordinates with batch index."""
         features, coordinates, occupancy = [], [], []
         for i, p in enumerate(points):
-            f, c, o = self.voxel_generator.generate(p)
+            res = self.voxel_generator.generate(p)
+            f = res["voxels"]
+            c = res["coordinates"]
+            o = res["num_points_per_voxel"]
             c = np.pad(c, ((0, 0), (1, 0)), constant_values=i)
             features += [f]; coordinates += [c]; occupancy += [o]
         return map(np.concatenate, (features, coordinates, occupancy))

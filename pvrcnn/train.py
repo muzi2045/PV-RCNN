@@ -13,10 +13,10 @@ from pvrcnn.dataset import UDIDatasetTrain
 
 def build_train_dataloader(cfg, preprocessor):
     dataloader = DataLoader(
-        KittiDatasetTrain(cfg),
+        UDIDatasetTrain(cfg),
         collate_fn=preprocessor.collate,
         batch_size=cfg.TRAIN.BATCH_SIZE,
-        num_workers=2,
+        num_workers=1,
     )
     return dataloader
 
@@ -45,8 +45,8 @@ def load_ckpt(fpath, model, optimizer):
 
 def update_plot(losses, prefix):
     for key in ['loss', 'cls_loss', 'reg_loss']:
-        plotter.update(f'{prefix}_{key}', losses[key].item())
-
+        print(f'{prefix}_{key}', losses[key].item())
+        # plotter.update(f'{prefix}_{key}', losses[key].item())
 
 def to_device(item):
     keys = ['G_cls', 'G_reg', 'M_cls', 'M_reg', 'points',
@@ -67,7 +67,7 @@ def train_model(model, dataloader, optimizer, lr_scheduler, loss_fn, epochs, sta
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=35)
             optimizer.step()
             lr_scheduler.step()
-            if (step % 10) == 0:
+            if (step % 100) == 0:
                 update_plot(losses, 'step')
         if (epoch % 5) == 0 or (epoch == epochs - 1):
             save_cpkt(model, optimizer, epoch)
@@ -101,12 +101,7 @@ if __name__ == '__main__':
         multiprocessing.set_start_method('spawn')
     except RuntimeError:
         pass
-    global plotter
-<<<<<<< HEAD
-    plotter = VisdomLinePlotter(env='training')
-    cfg.merge_from_file('../configs/KITTI/car_lite.yaml')
-=======
-    plotter = VisdomLinePlotter(env='second')
-    cfg.merge_from_file('../configs/second/car.yaml')
->>>>>>> upstream/master
+    # global plotter
+    # plotter = VisdomLinePlotter(env='training')
+    cfg.merge_from_file('../configs/UDI/all_class_lite.yaml')
     main()

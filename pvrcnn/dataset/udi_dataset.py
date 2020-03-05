@@ -8,24 +8,40 @@ from copy import deepcopy
 import os.path as osp
 from torch.utils.data import Dataset
 
-from pvrcnn.core import ProposalTargetAssigner, AnchorGenerator
+from pvrcnn.core import ProposalTargetAssigner
 from .kitti_utils import read_calib, read_label, read_velo
 from .augmentation import ChainedAugmentation
 from .database_sampler import DatabaseBuilder
 
+def udi_class_name_to_idx(class_name):
+    CLASS_NAME_TO_IDX = {
+        "car": 0,
+        "pedestrian": 1,
+        "cyclist": 2,
+        "truck": 3,
+        "forklift": 4,
+        "golf car": 5,
+        "motorcyclist": 6,
+        "bicycle": 7,
+        "motorbike": 8,
+    }
+    if class_name not in CLASS_NAME_TO_IDX.keys():
+        return -1
+    return CLASS_NAME_TO_IDX[class_name]
 
 def read_label(label_filename):
-    with open(label_path, encoding='utf-8') as f:
-            res = f.read()
+    with open(label_filename, encoding='utf-8') as f:
+        res = f.read()
     result = json.loads(res)
     boxes = result["elem"]
     boxes_list = []
     for box in boxes:
+        box_class = box["class"]
         box_id = box["id"]
         box_loc = box["position"]
         box_size = box["size"]
         box_yaw = box["yaw"]
-        box = np.array([box_id, box_loc["x"], box_loc["y"], box_loc["z"],
+        box = np.array([udi_class_name_to_idx(box_class), box_loc["x"], box_loc["y"], box_loc["z"],
                         box_size["width"], box_size["depth"], box_size["height"],
                         box_yaw], dtype=np.float)
         boxes_list.append(box)
@@ -42,7 +58,7 @@ class UDIDataset(Dataset):
     def __init__(self, cfg, split='val'):
         super(UDIDataset, self).__init__()
         self.cfg = cfg
-        # self.split = split
+        # self.inds = self.read_inds(self.cfg)
         self.load_annotations(cfg)
 
     def __len__(self):
@@ -55,7 +71,9 @@ class UDIDataset(Dataset):
         for filename in tqdm(filenames):
             index = filename.split(".")[0]
             inds.append(int(index))
-        self.inds = inds.sort()
+        inds.sort()
+        self.inds = inds
+        # print(self.inds)
 
     def read_cached_annotations(self, cfg):
         fpath = osp.join(cfg.DATA.CACHEDIR, 'infos_udi_train.pkl')
@@ -85,9 +103,8 @@ class UDIDataset(Dataset):
         for idx in tqdm(self.inds, desc='Generating annotations'):
             item = dict(
                 velo_path=self._path_helper('lidar', idx, 'bin'),
-                # calib=read_calib(self._path_helper('calib', idx, 'txt')),
                 objects=read_label(osp.join(self.cfg.DATA.ROOTDIR, 'label', f'{idx}_bin.json')),
-                idx= idx
+                idx= idx)
             self.annotations[idx] = self.make_simple_objects(item)
 
     def make_simple_object(self, obj):
@@ -115,14 +132,16 @@ class UDIDataset(Dataset):
         keep = ((xyz >= lower) & (xyz <= upper)).all(1)
         item['boxes'] = item['boxes'][keep]
         item['class_idx'] = item['class_idx'][keep]
+        item['box_ignore'] = np.full(keep.sum(), False)
 
     def to_torch(self, item):
         item['points'] = np.float32(item['points'])
         item['boxes'] = torch.FloatTensor(item['boxes'])
         item['class_idx'] = torch.LongTensor(item['class_idx'])
+        item['box_ignore'] = torch.BoolTensor(item['box_ignore'])
 
     def drop_keys(self, item):
-        for key in ['velo_path', 'objects', 'calib']:
+        for key in ['velo_path', 'objects']:
             item.pop(key)
 
     def preprocessing(self, item):
@@ -142,14 +161,16 @@ class UDIDatasetTrain(UDIDataset):
 
     def __init__(self, cfg):
         super(UDIDatasetTrain, self).__init__(cfg, split='train')
-        anchors = AnchorGenerator(cfg).anchors
+        # anchors = AnchorGenerator(cfg).anchors
+        # print("anchors shape:", anchors.shape)
         DatabaseBuilder(cfg, self.annotations)
-        self.target_assigner = ProposalTargetAssigner(cfg, anchors)
+        self.target_assigner = ProposalTargetAssigner(cfg)
         self.augmentation = ChainedAugmentation(cfg)
 
     def preprocessing(self, item):
         """Applies augmentation and assigns targets."""
-        self.filter_bad_objects(item)
+        np.random.shuffle(item['points'])
+        # self.filter_bad_objects(item)
         points, boxes, class_idx = self.augmentation(
             item['points'], item['boxes'], item['class_idx'])
         item.update(dict(points=points, boxes=boxes, class_idx=class_idx))

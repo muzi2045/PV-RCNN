@@ -1,67 +1,71 @@
+MAX_OCCUPANCY: 5
+MAX_VOXELS: 20000
+VOXEL_SIZE: [0.05, 0.05, 0.1]
+GRID_BOUNDS: [-50.0, -50.0, -3, 50.0, 50.0, 1]
 ANCHORS: [
-  {
+    {
         'names': ['car'],
         'wlh': [1.94577424, 4.664033417, 1.72199707],
-        'yaw': [0, np.pi / 2],
+        'yaw': [0, 1.57],
         'iou_thresh': [0.45, 0.60],
         'center_z': -0.956435506,
     },
     {
         'names': ['pedestrian'],
         'wlh': [0.663109142, 0.660078684, 1.69740680185],
-        'yaw': [0, np.pi / 2],
+        'yaw': [0, 1.57],
         'iou_thresh': [0.20, 0.35],
         'center_z': -1.03502404422,
     },
     {
         'names': ['cyclist'],
         'wlh': [0.744306975, 1.7435496439, 1.7369248417],
-        'yaw': [0, np.pi / 2],
+        'yaw': [0, 1.57],
         'iou_thresh': [0.20, 0.35],
         'center_z': -0.99310775276,
     },
     {
         'names': ['truck'],
         'wlh': [3.053279998, 11.660126632, 3.993921745],
-        'yaw': [0, np.pi / 2],
+        'yaw': [0, 1.57],
         'iou_thresh': [0.20, 0.35],
         'center_z': 0.328342720,
     },
     {
         'names': ['forklift'],
-        'wlh': 1.657422023, 3.558678919, 2.373538698],
-        'yaw': [0, np.pi / 2],
+        'wlh': [1.657422023, 3.558678919, 2.373538698],
+        'yaw': [0, 1.57],
         'iou_thresh': [0.20, 0.35],
         'center_z': -0.645023644,
     },
     {
         'names': ['golf car'],
         'wlh': [1.742403233, 4.042615982, 2.032321783],
-        'yaw': [0, np.pi / 2],
+        'yaw': [0, 1.57],
         'iou_thresh': [0.20, 0.35],
         'center_z': -0.733940190,
     },
     {
         'names': ['motorcyclist'],
         'wlh': [0.818783621, 1.901444449, 1.614611398],
-        'yaw': [0, np.pi / 2],
+        'yaw': [0, 1.57],
         'iou_thresh': [0.20, 0.35],
         'center_z': -0.967745191,
     },
     {
         'names': ['bicycle'],
         'wlh': [0.643188817, 1.718846680, 1.361503548],
-        'yaw': [0, np.pi / 2],
+        'yaw': [0, 1.57],
         'iou_thresh': [0.20, 0.35],
         'center_z': -1.134318771,
     },
     {
         'names': ['motorbike'],
         'wlh': [0.628220460, 1.789016152, 1.294042470],
-        'yaw': [0, np.pi / 2],
+        'yaw': [0, 1.57],
         'iou_thresh': [0.20, 0.35],
         'center_z': -0.974642619,
-    },
+    }
 ]
 NUM_CLASSES: 9
 CNN: 'SpMiddleFHDLite'
@@ -70,8 +74,9 @@ TRAIN:
   LAMBDA: 0.1
   LR: 1e-4
 AUG:
-  NUM_SAMPLE_OBJECTS: [15, 0, 0]
+  DATABASE_SAMPLE: False
+  NUM_SAMPLE_OBJECTS: [15, 20, 10, 5, 5, 5, 5, 5, 5]
 DATA:
-  CACHEDIR: './'
-  SPLITDIR: './'
-  ROOTDIR: './'
+  CACHEDIR: '../data/cache/'
+#   SPLITDIR: '../data'
+  ROOTDIR: '/home/ubuntu/disk1/UDI_dataset'

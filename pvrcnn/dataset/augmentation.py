@@ -33,6 +33,7 @@ class ChainedAugmentation(Augmentation):
 
     def __call__(self, points, boxes, class_idx):
         if self.cfg.AUG.DATABASE_SAMPLE:
+            print("using sample aug!!!")
             points, boxes, class_idx = self.augmentations[0](
                 points, boxes, class_idx)
         for aug in self.augmentations[1:]:
@@ -113,7 +114,7 @@ class SampleAugmentation(Augmentation):
         self._load_database(cfg)
 
     def _load_database(self, cfg):
-        fpath = osp.join(cfg.DATA.CACHEDIR, 'database.pkl')
+        fpath = osp.join(cfg.DATA.CACHEDIR, 'dataset.pkl')
         with open(fpath, 'rb') as f:
             self.database = pickle.load(f)
 
