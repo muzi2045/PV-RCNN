@@ -5,6 +5,7 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 import multiprocessing
 
+from tensorboardX import SummaryWriter
 from pvrcnn.detector import ProposalLoss, PV_RCNN, Second
 from pvrcnn.core import cfg, TrainPreprocessor, VisdomLinePlotter
 from pvrcnn.dataset import KittiDatasetTrain
@@ -48,6 +49,16 @@ def update_plot(losses, prefix):
         print(f'{prefix}_{key}', losses[key].item())
         # plotter.update(f'{prefix}_{key}', losses[key].item())
 
+def init_tensorboardX():
+    summary_dir = './summary'
+    os.makedirs(summary_dir, exist_ok=True)
+    summary_writer = SummaryWriter(str(summary_dir))
+    return summary_writer
+
+def update_tensorboardX(writer, losses, predfix, step):
+    for key in ['loss', 'cls_loss', 'reg_loss']:
+        writer.add_scalar(predfix + "/", losses[key].item() ,step)
+
 def to_device(item):
     keys = ['G_cls', 'G_reg', 'M_cls', 'M_reg', 'points',
         'features', 'coordinates', 'occupancy']
@@ -57,6 +68,7 @@ def to_device(item):
 
 def train_model(model, dataloader, optimizer, lr_scheduler, loss_fn, epochs, start_epoch=0):
     model.train()
+    summary_writer = init_tensorboardX()
     for epoch in range(start_epoch, epochs):
         for step, item in enumerate(tqdm(dataloader, desc=f'Epoch {epoch}')):
             to_device(item)
@@ -67,10 +79,13 @@ def train_model(model, dataloader, optimizer, lr_scheduler, loss_fn, epochs, sta
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=35)
             optimizer.step()
             lr_scheduler.step()
+            if(step % 50) == 0:
+                update_tensorboardX(summary_writer, losses, 'step', 5714*epoch+ step)
             if (step % 100) == 0:
                 update_plot(losses, 'step')
         if (epoch % 5) == 0 or (epoch == epochs - 1):
             save_cpkt(model, optimizer, epoch)
+    summary_writer.close()
 
 
 def get_proposal_parameters(model):
