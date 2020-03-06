@@ -9,7 +9,6 @@ import os.path as osp
 from torch.utils.data import Dataset
 
 from pvrcnn.core import ProposalTargetAssigner
-from .kitti_utils import read_calib, read_label, read_velo
 from .augmentation import ChainedAugmentation
 from .database_sampler import DatabaseBuilder
 
@@ -58,7 +57,6 @@ class UDIDataset(Dataset):
     def __init__(self, cfg, split='val'):
         super(UDIDataset, self).__init__()
         self.cfg = cfg
-        # self.inds = self.read_inds(self.cfg)
         self.load_annotations(cfg)
 
     def __len__(self):
@@ -73,7 +71,6 @@ class UDIDataset(Dataset):
             inds.append(int(index))
         inds.sort()
         self.inds = inds
-        # print(self.inds)
 
     def read_cached_annotations(self, cfg):
         fpath = osp.join(cfg.DATA.CACHEDIR, 'infos_udi_train.pkl')
@@ -161,8 +158,6 @@ class UDIDatasetTrain(UDIDataset):
 
     def __init__(self, cfg):
         super(UDIDatasetTrain, self).__init__(cfg, split='train')
-        # anchors = AnchorGenerator(cfg).anchors
-        # print("anchors shape:", anchors.shape)
         DatabaseBuilder(cfg, self.annotations)
         self.target_assigner = ProposalTargetAssigner(cfg)
         self.augmentation = ChainedAugmentation(cfg)

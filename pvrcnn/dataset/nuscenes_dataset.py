@@ -1,42 +1,77 @@
 from tqdm import tqdm
 import pickle
+import json
 import numpy as np
 import torch
 import os
 from copy import deepcopy
 import os.path as osp
+from pathlib import Path
 from torch.utils.data import Dataset
 
 from pvrcnn.core import ProposalTargetAssigner, AnchorGenerator
-from .kitti_utils import read_calib, read_label, read_velo
 from .augmentation import ChainedAugmentation
 from .database_sampler import DatabaseBuilder
 
-class NuscenesDataset(Dataset):
+def udi_class_name_to_idx(class_name):
+    CLASS_NAME_TO_IDX = {
+        "car": 0,
+        "bicycle": 1,
+        "bus": 2,
+        "construction_vehicle": 3,
+        "motorcycle": 4,
+        "pedestrian": 5,
+        "traffic_cone": 6,
+        "trailer": 7,
+        "truck": 8,
+        "barrier": 9,
+    }
+    if class_name not in CLASS_NAME_TO_IDX.keys():
+        return -1
+    return CLASS_NAME_TO_IDX[class_name]
 
-    def __init__(self, cfg, split='val'):
-        super(KittiDataset, self).__init__()
+class NuscenesDataset(Dataset):
+    NameMapping = {
+        'movable_object.barrier': 'barrier',
+        'vehicle.bicycle': 'bicycle',
+        'vehicle.bus.bendy': 'bus',
+        'vehicle.bus.rigid': 'bus',
+        'vehicle.car': 'car',
+        'vehicle.construction': 'construction_vehicle',
+        'vehicle.motorcycle': 'motorcycle',
+        'human.pedestrian.adult': 'pedestrian',
+        'human.pedestrian.child': 'pedestrian',
+        'human.pedestrian.construction_worker': 'pedestrian',
+        'human.pedestrian.police_officer': 'pedestrian',
+        'movable_object.trafficcone': 'traffic_cone',
+        'vehicle.trailer': 'trailer',
+        'vehicle.truck': 'truck'
+    }
+    def __init__(self, cfg, split='v1.0-trainval'):
+        super(NuscenesDataset, self).__init__()
         self.cfg = cfg
         self.split = split
         self.load_annotations(cfg)
+        self.max_sweeps = 10
 
     def __len__(self):
         return len(self.inds)
 
-    def read_splitfile(self, cfg):
-        fpath = osp.join(cfg.DATA.SPLITDIR, f'{self.split}.txt')
-        self.inds = np.loadtxt(fpath, dtype=np.int32).tolist()
+    # def read_splitfile(self, cfg):
+    #     fpath = osp.join(cfg.DATA.SPLITDIR, f'{self.split}.txt')
+    #     self.inds = np.loadtxt(fpath, dtype=np.int32).tolist()
 
     def read_cached_annotations(self, cfg):
-        fpath = osp.join(cfg.DATA.CACHEDIR, f'{self.split}.pkl')
+        fpath = osp.join(cfg.DATA.CACHEDIR, f'{self.split}.json')
         with open(fpath, 'rb') as f:
             self.annotations = pickle.load(f)
         print(f'Found cached annotations: {fpath}')
 
     def cache_annotations(self, cfg):
-        fpath = osp.join(cfg.DATA.CACHEDIR, f'{self.split}.pkl')
+        fpath = osp.join(cfg.DATA.CACHEDIR, f'{self.split}.json')
         with open(fpath, 'wb') as f:
-            pickle.dump(self.annotations, f)
+            json.dump(self.annotations, f)
+            # pickle.dump(self.annotations, f)
 
     def load_annotations(self, cfg):
         self.read_splitfile(cfg)
@@ -44,13 +79,62 @@ class NuscenesDataset(Dataset):
             self.read_cached_annotations(cfg)
         except FileNotFoundError:
             os.makedirs(cfg.DATA.CACHEDIR, exist_ok=True)
-            self.create_annotations()
+            self.create_annotations(self.split,self.max_sweeps)
             self.cache_annotations(cfg)
 
     def _path_helper(self, folder, idx, suffix):
         return osp.join(self.cfg.DATA.ROOTDIR, folder, f'{idx:06d}.{suffix}')
 
-    def create_annotations(self):
+    def _get_available_scenes(nusc):
+        available_scenes = []
+        print("total scene num:", len(nusc.scene))
+        for scene in nusc.scene:
+            scene_token = scene["token"]
+            scene_rec = nusc.get('scene', scene_token)
+            sample_rec = nusc.get('sample', scene_rec['first_sample_token'])
+            sd_rec = nusc.get('sample_data', sample_rec['data']["LIDAR_TOP"])
+            has_more_frames = True
+            scene_not_exist = False
+            while has_more_frames:
+                lidar_path, boxes, _ = nusc.get_sample_data(sd_rec['token'])
+                if not Path(lidar_path).exists():
+                    scene_not_exist = True
+                    break
+                else:
+                    break
+                if not sd_rec['next'] == "":
+                    sd_rec = nusc.get('sample_data', sd_rec['next'])
+                else:
+                    has_more_frames = False
+            if scene_not_exist:
+                continue
+            available_scenes.append(scene)
+        print("exist scene num:", len(available_scenes))
+        return available_scenes
+
+    def create_annotations(self, version, max_sweeps):
+        from nuscenes.nuscenes import NuScenes
+        nusc = NuScenes(version=version, dataroot=cfg.DATA.ROOTDIR, verbose=True)
+        from nuscenes.utils import splits
+        available_vers = ["v1.0-trainval", "v1.0-test", "v1.0-mini"]
+        assert version in available_vers
+        if version == "v1.0-trainval":
+            train_scenes = splits.train
+            val_scenes = splits.val
+        elif version == "v1.0-test":
+            train_scenes = splits.test
+            val_scenes = []
+        elif version == "v1.0-mini":
+            train_scenes = splits.mini_train
+            val_scenes = splits.mini_val
+        else:
+            raise ValueError("unknown")
+        root_path = Path(cfg.DATA.ROOTDIR)
+        available_scenes = _get_available_scenes(nusc)
+        
+
+
+
         self.annotations = dict()
         for idx in tqdm(self.inds, desc='Generating annotations'):
             item = dict(
