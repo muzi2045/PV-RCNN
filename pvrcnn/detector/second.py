@@ -22,8 +22,7 @@ class Second(nn.Module):
         features = self.cnn(features, item['coordinates'], item['batch_size'])
         features = self.rpn(features)
         scores, boxes = self.head(features)
-        # print("scores shape:", scores.shape)
-        # print("boxes shape:", boxes.shape)
+
         item.update(dict(P_cls=scores, P_reg=boxes))
         return item
 
