@@ -1,9 +1,8 @@
-Pointnet2.PyTorch/*
-spconv/*
-torchsearchsorted/*
+thirdparty/*
 data/*
 .vscode
 pythonpath.sh
+**/__pycache__/*
 *.bin
 *.pth
 *.so
@@ -20,3 +19,4 @@ pvrcnn/core/viz_detections.py
 *.pyc
 
 images/proposals_*
+notebooks/*

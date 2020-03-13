@@ -1,4 +1,3 @@
-import os.path as osp
 import numpy as np
 
 import open3d as o3d 
@@ -141,10 +140,14 @@ def inference(out, anchors, cfg):
     top_classes = class_idx[nms_idx]
     return top_boxes, top_scores, top_classes
 
-def to_device(item):
-    for key in ['points', 'features', 'coordinates', 'occupancy']:
-        item[key] = item[key].cuda()
-    return item
+def viz_detections(points, boxes):
+    boxes = boxes.cpu().numpy()
+    bev_map = Drawer(points, [boxes]).image
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.imshow(bev_map.transpose(1, 0, 2)[::-1])
+    ax.set_axis_off()
+    fig.tight_layout()
+    plt.show()
 
 def load_ckpt(fpath, model, optimizer):
     if not osp.isfile(fpath):
@@ -155,39 +158,28 @@ def load_ckpt(fpath, model, optimizer):
     epoch = ckpt['epoch']
     return epoch
 
-def main():
-    ckpt_path = './pvrcnn/ckpts/epoch_5.pth'
-    ckpt = torch.load(ckpt_path)
+def get_model(cfg):
+    cfg.merge_from_file('./configs/UDI/all_class_lite.yaml')
+    anchors = AnchorGenerator(cfg).anchors
     preprocessor = Preprocessor(cfg)
-    net = Second(cfg).cuda().eval()
-    net.load_state_dict(ckpt['state_dict'])
-    basedir = osp.join('/home/muzi2045/Documents/project/data_annoation/3D_pcd', 'lidar')
-    item = dict(points=[
-        np.fromfile(osp.join(basedir, '0.bin'), np.float32).reshape(-1, 4),
-    ])
-    with torch.no_grad():
-        item = to_device(preprocessor(item))
-        anchors = AnchorGenerator(cfg).anchors.cuda()
-        out = net.forward(item)
-        top_boxes, top_scores, top_classes = inference(out, anchors, cfg)
-    top_boxes = top_boxes.detach().cpu().numpy()
-    top_scores = top_scores.detach().cpu().numpy()
-    top_classes = top_classes.detach().cpu().numpy()
-    # print("top_boxes:", top_boxes)
-    # print("top_scores:", top_scores)
-    # print("top_classes:", top_classes)
-    point_cloud = np.fromfile(osp.join(basedir, '0.bin'), dtype=np.float32).reshape(-1, 4)[:, :3]
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(point_cloud)
+    model = Second(cfg).cuda().eval()
+    ckpt = torch.load('../pvrcnn/ckpts/epoch_12.pth')['state_dict']
+    model.load_state_dict(ckpt, strict=True)
+    return model, preprocessor, anchors
 
-    box_to_draw = []
-    for box in top_boxes:
-        line_set = box2lineset(box)
-        box_to_draw.append(line_set)
-    box_to_draw.append(pcd)
-    custom_draw_geometry_with_key_callback(box_to_draw)
+
+def main():
+    model, preprocessor, anchors = get_model(cfg)
+    fpath = '../data/kitti/training/velodyne_reduced/000032.bin'
+    points = np.fromfile(fpath, np.float32).reshape(-1, 4)
+    with torch.no_grad():
+        item = preprocessor(dict(points=[points], anchors=anchors))
+        for key in ['points', 'features', 'coordinates', 'occupancy', 'anchors']:
+            item[key] = item[key].cuda()
+        boxes, batch_idx, class_idx, scores = model.inference(item)
+    viz_detections(points, boxes)
 
 
 if __name__ == '__main__':
-    cfg.merge_from_file('./configs/UDI/all_class_lite.yaml')
+    # cfg.merge_from_file('./configs/UDI/all_class_lite.yaml')
     main()

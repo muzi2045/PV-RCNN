@@ -83,31 +83,30 @@ def train_model(model, dataloader, optimizer, lr_scheduler, loss_fn, epochs, sta
                 update_tensorboardX(summary_writer, losses, 'step', 5714*epoch+ step)
             if (step % 100) == 0:
                 update_plot(losses, 'step')
-        if (epoch % 5) == 0 or (epoch == epochs - 1):
+        if (epoch % 3) == 0 or (epoch == epochs - 1):
             save_cpkt(model, optimizer, epoch)
     summary_writer.close()
 
 
-def get_proposal_parameters(model):
-    for p in model.roi_grid_pool.parameters():
-        p.requires_grad = False
-    for p in model.refinement_layer.parameters():
-        p.requires_grad = False
-    return model.parameters()
+def build_lr_scheduler(optimizer, cfg, start_epoch, N):
+    last_epoch = start_epoch * N / cfg.TRAIN.BATCH_SIZE
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer, max_lr=0.01, steps_per_epoch=N,
+        epochs=cfg.TRAIN.EPOCHS, last_epoch=last_epoch)
+    return scheduler
 
 
 def main():
     """TODO: Trainer class to manage objects."""
-    # model = Second(cfg).cuda()
-    model = PV_RCNN(cfg).cuda()
+    model = Second(cfg).cuda()
+    # model = PV_RCNN(cfg).cuda()
     parameters = model.parameters()
     loss_fn = ProposalLoss(cfg)
     preprocessor = TrainPreprocessor(cfg)
     dataloader = build_train_dataloader(cfg, preprocessor)
     optimizer = torch.optim.Adam(parameters, lr=0.01)
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01,
-        steps_per_epoch=len(dataloader), epochs=cfg.TRAIN.EPOCHS)
-    start_epoch = load_ckpt('./ckpts/epoch_5.pth', model, optimizer)
+    start_epoch = load_ckpt('./ckpts/epoch_10.pth', model, optimizer)
+    scheduler = build_lr_scheduler(optimizer, cfg, start_epoch, len(dataloader))
     train_model(model, dataloader, optimizer,
         scheduler, loss_fn, cfg.TRAIN.EPOCHS, start_epoch)
 
