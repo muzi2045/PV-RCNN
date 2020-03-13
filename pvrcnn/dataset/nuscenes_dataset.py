@@ -131,6 +131,7 @@ class NuscenesDataset(Dataset):
             raise ValueError("unknown")
         root_path = Path(cfg.DATA.ROOTDIR)
         available_scenes = _get_available_scenes(nusc)
+        available_scene_names = [s["name"] for s in available_scenes]
         
 
 

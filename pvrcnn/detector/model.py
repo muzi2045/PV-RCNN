@@ -82,4 +82,11 @@ class PV_RCNN(nn.Module):
         return item
 
     def forward(self, item):
+        # item['keypoints'] = self.sample_keypoints(item['points'])
+        # features = self.vfe(item['features'], item['occupancy'])
+        # cnn_features, bev_map = self.cnn(features, item['coordinates'], item['batch_size'])
+        # point_features = point_feature_extract(item, cnn_features, bev_map)
+        # scores, boxes = self.proposal_layer(bev_map)
+        # item.update(dict(P_cls=scores, P_reg=boxes))
+        # return item
         raise NotImplementedError

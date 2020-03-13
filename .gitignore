@@ -14,7 +14,7 @@ dist/*
 pvrcnn.egg-info/*
 
 notebooks/*
-
+pvrcnn/summary/*
 pvrcnn/eval/*
 pvrcnn/core/viz_detections.py
 *.pyc

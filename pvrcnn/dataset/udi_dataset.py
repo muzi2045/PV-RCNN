@@ -164,7 +164,7 @@ class UDIDatasetTrain(UDIDataset):
 
     def preprocessing(self, item):
         """Applies augmentation and assigns targets."""
-        np.random.shuffle(item['points'])
+        # np.random.shuffle(item['points'])
         # self.filter_bad_objects(item)
         points, boxes, class_idx = self.augmentation(
             item['points'], item['boxes'], item['class_idx'])
