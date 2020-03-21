@@ -7,13 +7,14 @@ import os
 from copy import deepcopy
 import os.path as osp
 from pathlib import Path
+from pyquaternion import Quaternion
 from torch.utils.data import Dataset
 
-from pvrcnn.core import ProposalTargetAssigner, AnchorGenerator
-from .augmentation import ChainedAugmentation
-from .database_sampler import DatabaseBuilder
+from pvrcnn.core import ProposalTargetAssigner
+from .augmentation import ChainedAugmentation, DatabaseBuilder
+# from .database_sampler import DatabaseBuilder
 
-def udi_class_name_to_idx(class_name):
+def nuscenes_class_name_to_idx(class_name):
     CLASS_NAME_TO_IDX = {
         "car": 0,
         "bicycle": 1,
@@ -32,20 +33,24 @@ def udi_class_name_to_idx(class_name):
 
 class NuscenesDataset(Dataset):
     NameMapping = {
-        'movable_object.barrier': 'barrier',
-        'vehicle.bicycle': 'bicycle',
         'vehicle.bus.bendy': 'bus',
         'vehicle.bus.rigid': 'bus',
         'vehicle.car': 'car',
+        'vehicle.emergency.police': 'car',
         'vehicle.construction': 'construction_vehicle',
         'vehicle.motorcycle': 'motorcycle',
+        'vehicle.bicycle': 'bicycle',
+        'vehicle.trailer': 'trailer',
+        'vehicle.truck': 'truck',
         'human.pedestrian.adult': 'pedestrian',
         'human.pedestrian.child': 'pedestrian',
+        'human.pedestrian.personal_mobility': 'pedestrian',
+        'human.pedestrian.stroller': 'pedestrian',
+        'human.pedestrian.wheelchair': 'pedestrian',
         'human.pedestrian.construction_worker': 'pedestrian',
         'human.pedestrian.police_officer': 'pedestrian',
         'movable_object.trafficcone': 'traffic_cone',
-        'vehicle.trailer': 'trailer',
-        'vehicle.truck': 'truck'
+        'movable_object.barrier': 'barrier'
     }
     def __init__(self, cfg, split='v1.0-trainval'):
         super(NuscenesDataset, self).__init__()
@@ -57,21 +62,19 @@ class NuscenesDataset(Dataset):
     def __len__(self):
         return len(self.inds)
 
-    # def read_splitfile(self, cfg):
-    #     fpath = osp.join(cfg.DATA.SPLITDIR, f'{self.split}.txt')
-    #     self.inds = np.loadtxt(fpath, dtype=np.int32).tolist()
-
     def read_cached_annotations(self, cfg):
-        fpath = osp.join(cfg.DATA.CACHEDIR, f'{self.split}.json')
+        fpath = osp.join(cfg.DATA.CACHEDIR, f'{self.split}.pkl')
         with open(fpath, 'rb') as f:
-            self.annotations = pickle.load(f)
-        print(f'Found cached annotations: {fpath}')
+            self.train_infos = pickle.load(f)
+        print(f'Found cached train infos: {fpath}')
 
     def cache_annotations(self, cfg):
-        fpath = osp.join(cfg.DATA.CACHEDIR, f'{self.split}.json')
-        with open(fpath, 'wb') as f:
-            json.dump(self.annotations, f)
-            # pickle.dump(self.annotations, f)
+        train_path = osp.join(cfg.DATA.CACHEDIR, 'train_infos.pkl')
+        val_path = osp.join(cfg.DATA.CACHDIR, 'val_infos.pkl')
+        with open(train_path, 'wb') as f:
+            pickle.dump(self.train_infos, f)
+        with open(val_path, 'wb') as f:
+            pickle.dump(self.val_infos, f)
 
     def load_annotations(self, cfg):
         self.read_splitfile(cfg)
@@ -85,7 +88,7 @@ class NuscenesDataset(Dataset):
     def _path_helper(self, folder, idx, suffix):
         return osp.join(self.cfg.DATA.ROOTDIR, folder, f'{idx:06d}.{suffix}')
 
-    def _get_available_scenes(nusc):
+    def _get_available_scenes(self, nusc):
         available_scenes = []
         print("total scene num:", len(nusc.scene))
         for scene in nusc.scene:
@@ -130,34 +133,116 @@ class NuscenesDataset(Dataset):
         else:
             raise ValueError("unknown")
         root_path = Path(cfg.DATA.ROOTDIR)
-        available_scenes = _get_available_scenes(nusc)
+        available_scenes = self._get_available_scenes(nusc)
         available_scene_names = [s["name"] for s in available_scenes]
+        train_scenes = list(filter(lambda x: x in available_scene_names, train_scenes))
+        val_scenes = list(filter(lambda x: x in available_scene_names, val_scenes))
+        train_scenes = set([
+            available_scenes[available_scene_names.index(s)]["token"]
+            for s in train_scenes
+        ])
+        val_scenes = set([
+            available_scenes[available_scene_names.index(s)]["token"]
+            for s in val_scenes
+        ])
+        print(
+            f"train scene: {len(train_scenes)}, val scene: {len(val_scenes)}")
+        self.train_infos = dict()
+        self.val_infos = dict()
+        index = 0
         
+        for sample in tqdm(nusc.sample, desc="Generating train infos..."):
+            lidar_token = sample["data"]["LIDAR_TOP"]
+            sd_rec = nusc.get('sample_data', lidar_token)
+            cs_record = nusc.get('calibrated_sensor', sd_rec['calibrated_sensor_token'])
+            pose_record = nusc.get('ego_pose', sd_rec['ego_pose_token'])
+            lidar_path, boxes, _ = nusc.get_sample_data(lidar_token)
+            assert Path(lidar_path).exists(), ("some lidar file miss...+_+")
+            item = {
+                "lidar_path": lidar_path,
+                "token": sample["token"],
+                "sweeps": [],
+                "calib": cs_record,
+                "ego_pose": pose_record,
+                "timestamp": sample["timestamp"]
+            }
+            l2e_t = cs_record['translation']
+            l2e_r = cs_record['rotation']
+            e2g_t = pose_record['translation']
+            e2g_r = pose_record['rotation']
+            
+            l2e_r_mat = Quaternion(l2e_r).rotation_matrix
+            e2g_r_mat = Quaternion(e2g_r).rotation_matrix
 
+            sweeps = []
+            while len(sweeps) < max_sweeps:
+                if not sd_rec['prev'] == "":
+                    sd_rec = nusc.get('sample_data', sd_rec['prev'])
+                    cs_record = nusc.get('calibrated_sensor', sd_rec['calibrated_sensor_token'])
+                    pose_record = nusc.get('ego_pose', sd_rec['ego_pose_token'])
+                    lidar_path = nusc.get_sample_data_path(sd_rec['token'])
+                    sweep = {
+                        "lidar_path": lidar_path,
+                        "sample_data_token": sd_rec['token'],
+                        "timestamp": sd_rec["timestamp"]
+                    }
+                    l2e_r_s = cs_record["rotation"]
+                    l2e_t_s = cs_record["translation"]
+                    e2g_r_s = pose_record["rotation"]
+                    e2g_t_s = pose_record["translation"]
+                    ## sweep->ego->global->ego'->lidar
+                    l2e_r_s_mat = Quaternion(l2e_r_s).rotation_matrix
+                    e2g_r_s_mat = Quaternion(e2g_r_s).rotation_matrix
 
+                    R = (l2e_r_s_mat.T @ e2g_r_s_mat.T) @ (
+                        np.linalg.inv(e2g_r_mat).T @ np.linalg.inv(l2e_r_mat).T
+                    )
+                    T = (l2e_t_s @ e2g_r_s_mat.T + e2g_t_s) @ (
+                        np.linalg.inv(e2g_r_mat).T @ np.linalg.inv(l2e_r_mat).T
+                    )
+                    T -= e2g_t @ (np.linalg.inv(e2g_r_mat).T @ np.linalg.inv(
+                        l2e_r_mat).T) + l2e_t @ np.linalg.inv(l2e_r_mat).T 
+                    sweep["sweep2lidar_rotation"] = R.T 
+                    sweep["sweep2lidar_translation"] = T
+                    sweeps.append(sweep)
+                else:
+                    break
+            item["sweeps"] = sweeps
 
-        self.annotations = dict()
-        for idx in tqdm(self.inds, desc='Generating annotations'):
-            item = dict(
-                velo_path=self._path_helper('velodyne_reduced', idx, 'bin'),
-                calib=read_calib(self._path_helper('calib', idx, 'txt')),
-                objects=read_label(self._path_helper('label_2', idx, 'txt')), idx=idx,
+            annotations = [
+                nusc.get('sample_annotation', token)
+                for token in sample['anns']
+            ]
+            locs = np.array([b.center for b in boxes]).reshape(-1, 3)
+            dims = np.array([b.wlh for b in boxes]).reshape(-1, 3)
+            rots = np.array([b.orientation.yaw_pitch_roll[0] 
+                            for b in boxes]).reshape(-1, 1)
+            names = [b.name for b in boxes]
+            class_idx = []
+            for i in range(len(names)):
+                if names[i] in NuscenesDataset.NameMapping:
+                    names[i] = NuscenesDataset.NameMapping[names[i]]
+                    class_idx.append(nuscenes_class_name_to_idx(names[i]))
+            names = np.array(names)
+            class_idx = np.array(class_idx)
+
+            gt_boxes = np.concatenate([locs, dims, rots], axis=1)
+            assert len(gt_boxes) == len(
+                annotations), f"{len(gt_boxes)}, {len(annotations)}."
+            item["boxes"] = gt_boxes
+            item["class_idx"] = class_idx
+            item["names"] = names
+            item["num_lidar_pts"] = np.array(
+                [a["num_lidar_pts"] for a in annotations]
             )
-            self.annotations[idx] = self.make_simple_objects(item)
-
-    def make_simple_object(self, obj, calib):
-        """Converts from camera to velodyne frame."""
-        xyz = calib.C2V @ np.r_[calib.R0 @ obj.t, 1]
-        box = np.r_[xyz, obj.w, obj.l, obj.h, -obj.ry]
-        obj = dict(box=box, class_idx=obj.class_idx)
-        return obj
-
-    def make_simple_objects(self, item):
-        objects = [self.make_simple_object(
-            obj, item['calib']) for obj in item['objects']]
-        item['boxes'] = np.stack([obj['box'] for obj in objects])
-        item['class_idx'] = np.r_[[obj['class_idx'] for obj in objects]]
-        return item
+            item["num_radar_pts"] = np.array(
+                [a["num_radar_pts"] for a in annotations]
+            )
+            if sample["scene_token"] in train_scenes:
+                self.train_infos[index] = item
+            else:
+                self.val_infos[index] = item
+            index += 1
 
     def filter_bad_objects(self, item):
         class_idx = item['class_idx'][:, None]
@@ -185,11 +270,33 @@ class NuscenesDataset(Dataset):
     def preprocessing(self, item):
         self.to_torch(item)
 
+    def read_nu_lidar(self, item):
+        lidar_path = Path(item["lidar_path"])
+        points = np.fromfile(
+            str(lidar_path), dtype=np.float32, count=-1).reshape([-1, 5])
+        points[:, 3] /= 255
+        points[:, 4] = 0
+        sweep_points_list = [points]
+        ts = item["timestamp"] / 1e6
+        for sweep in item["sweeps"]:
+            points_sweep = np.fromfile(
+                str(sweep["lidar_path"]), dtype=np.float32,
+                count=-1).reshape([-1, 5])
+            sweep_ts = sweep["timestamp"] / 1e6
+            points_sweep[:, 3] /= 255
+            points_sweep[:, :3] = points_sweep[:, :3] @ sweep[
+                "sweep2lidar_rotation"].T
+            points_sweep[:, :3] += sweep["sweep2lidar_translation"]
+            points_sweep[:, 4] = ts - sweep_ts
+            sweep_points_list.append(points_sweep)
+        points = np.concatenate(sweep_points_list, axis=0)[:, [0, 1, 2, 4]]
+        return points
+
     def __getitem__(self, idx):
-        item = deepcopy(self.annotations[self.inds[idx]])
-        item['points'] = read_velo(item['velo_path'])
+        item = deepcopy(self.annotations[idx])
+        item['points'] = self.read_nu_lidar(item)
         self.preprocessing(item)
-        self.drop_keys(item)
+        # self.drop_keys(item)
         return item
 
 
@@ -199,14 +306,13 @@ class NuscenesDatasetTrain(NuscenesDataset):
 
     def __init__(self, cfg):
         super(NuscenesDatasetTrain, self).__init__(cfg, split='train')
-        anchors = AnchorGenerator(cfg).anchors
         DatabaseBuilder(cfg, self.annotations)
-        self.target_assigner = ProposalTargetAssigner(cfg, anchors)
         self.augmentation = ChainedAugmentation(cfg)
+        self.target_assigner = ProposalTargetAssigner(cfg)
 
     def preprocessing(self, item):
         """Applies augmentation and assigns targets."""
-        self.filter_bad_objects(item)
+        # self.filter_bad_objects(item)
         points, boxes, class_idx = self.augmentation(
             item['points'], item['boxes'], item['class_idx'])
         item.update(dict(points=points, boxes=boxes, class_idx=class_idx))
