@@ -26,7 +26,6 @@ class Second(nn.Module):
     def forward(self, item):
         features = self.feature_extract(item)
         scores, boxes = self.head(features)
-
         item.update(dict(P_cls=scores, P_reg=boxes))
         return item
 

@@ -52,37 +52,52 @@ class NuscenesDataset(Dataset):
         'movable_object.trafficcone': 'traffic_cone',
         'movable_object.barrier': 'barrier'
     }
-    def __init__(self, cfg, split='v1.0-trainval'):
+    Nuscenes_classes = ['car', 
+                        'bicycle', 
+                        'bus', 
+                        'construction_vehicle', 
+                        'motorcycle',
+                        'pedestrian', 
+                        'traffic_cone', 
+                        'trailer',
+                        'truck',
+                        'barrier']
+    def __init__(self, cfg, split='v1.0-trainval', max_sweeps=10):
         super(NuscenesDataset, self).__init__()
         self.cfg = cfg
         self.split = split
+        self.max_sweeps = max_sweeps
         self.load_annotations(cfg)
-        self.max_sweeps = 10
+        
 
     def __len__(self):
-        return len(self.inds)
+        # only for training
+        return len(self.train_infos)
 
     def read_cached_annotations(self, cfg):
-        fpath = osp.join(cfg.DATA.CACHEDIR, f'{self.split}.pkl')
-        with open(fpath, 'rb') as f:
+        train_fpath = osp.join(cfg.DATA.CACHEDIR, 'train_infos.pkl')
+        val_fpath = osp.join(cfg.DATA.CACHEDIR, 'val_infos.pkl')
+        with open(train_fpath, 'rb') as f:
             self.train_infos = pickle.load(f)
-        print(f'Found cached train infos: {fpath}')
+        with open(val_fpath, 'rb') as f:
+            self.val_infos = pickle.load(f)
+        print(f'Found cached train infos: {train_fpath} {val_fpath}')
 
     def cache_annotations(self, cfg):
         train_path = osp.join(cfg.DATA.CACHEDIR, 'train_infos.pkl')
-        val_path = osp.join(cfg.DATA.CACHDIR, 'val_infos.pkl')
+        val_path = osp.join(cfg.DATA.CACHEDIR, 'val_infos.pkl')
         with open(train_path, 'wb') as f:
             pickle.dump(self.train_infos, f)
         with open(val_path, 'wb') as f:
             pickle.dump(self.val_infos, f)
 
     def load_annotations(self, cfg):
-        self.read_splitfile(cfg)
+        # self.read_splitfile(cfg)
         try:
             self.read_cached_annotations(cfg)
         except FileNotFoundError:
             os.makedirs(cfg.DATA.CACHEDIR, exist_ok=True)
-            self.create_annotations(self.split,self.max_sweeps)
+            self.create_annotations(self.split, self.max_sweeps)
             self.cache_annotations(cfg)
 
     def _path_helper(self, folder, idx, suffix):
@@ -117,7 +132,7 @@ class NuscenesDataset(Dataset):
 
     def create_annotations(self, version, max_sweeps):
         from nuscenes.nuscenes import NuScenes
-        nusc = NuScenes(version=version, dataroot=cfg.DATA.ROOTDIR, verbose=True)
+        nusc = NuScenes(version=version, dataroot=self.cfg.DATA.ROOTDIR, verbose=True)
         from nuscenes.utils import splits
         available_vers = ["v1.0-trainval", "v1.0-test", "v1.0-mini"]
         assert version in available_vers
@@ -132,7 +147,7 @@ class NuscenesDataset(Dataset):
             val_scenes = splits.mini_val
         else:
             raise ValueError("unknown")
-        root_path = Path(cfg.DATA.ROOTDIR)
+        root_path = Path(self.cfg.DATA.ROOTDIR)
         available_scenes = self._get_available_scenes(nusc)
         available_scene_names = [s["name"] for s in available_scenes]
         train_scenes = list(filter(lambda x: x in available_scene_names, train_scenes))
@@ -227,8 +242,18 @@ class NuscenesDataset(Dataset):
             class_idx = np.array(class_idx)
 
             gt_boxes = np.concatenate([locs, dims, rots], axis=1)
-            assert len(gt_boxes) == len(
-                annotations), f"{len(gt_boxes)}, {len(annotations)}."
+
+            ## In Nuscenes Dataset, need to filter some rare class
+            mask = np.array([NuscenesDataset.Nuscenes_classes.count(s) > 0 for s in names], dtype=np.bool_)
+            gt_boxes = gt_boxes[mask]
+            names = names[mask]
+            
+            # assert len(gt_boxes) == len(
+            #     annotations), f"{len(gt_boxes)}, {len(annotations)}."
+            assert len(gt_boxes) == len(names), f"{len(gt_boxes)}, {len(names)}"
+            
+            assert len(gt_boxes) == len(class_idx), f"{len(gt_boxes)}, {len(class_idx)}"
+
             item["boxes"] = gt_boxes
             item["class_idx"] = class_idx
             item["names"] = names
@@ -243,6 +268,7 @@ class NuscenesDataset(Dataset):
             else:
                 self.val_infos[index] = item
             index += 1
+        
 
     def filter_bad_objects(self, item):
         class_idx = item['class_idx'][:, None]
@@ -257,11 +283,13 @@ class NuscenesDataset(Dataset):
         keep = ((xyz >= lower) & (xyz <= upper)).all(1)
         item['boxes'] = item['boxes'][keep]
         item['class_idx'] = item['class_idx'][keep]
+        item['box_ignore'] = np.full(keep.sum(), False)
 
     def to_torch(self, item):
         item['points'] = np.float32(item['points'])
         item['boxes'] = torch.FloatTensor(item['boxes'])
         item['class_idx'] = torch.LongTensor(item['class_idx'])
+        item['box_ignore'] = torch.BoolTensor(item['box_ignore'])
 
     def drop_keys(self, item):
         for key in ['velo_path', 'objects', 'calib']:
@@ -293,7 +321,7 @@ class NuscenesDataset(Dataset):
         return points
 
     def __getitem__(self, idx):
-        item = deepcopy(self.annotations[idx])
+        item = deepcopy(self.train_infos[idx])
         item['points'] = self.read_nu_lidar(item)
         self.preprocessing(item)
         # self.drop_keys(item)
@@ -305,8 +333,9 @@ class NuscenesDatasetTrain(NuscenesDataset):
         anchors. Find better place to instantiate target assigner."""
 
     def __init__(self, cfg):
-        super(NuscenesDatasetTrain, self).__init__(cfg, split='train')
-        DatabaseBuilder(cfg, self.annotations)
+        super(NuscenesDatasetTrain, self).__init__(cfg, split='v1.0-trainval', max_sweeps=10)
+        DatabaseBuilder(cfg, self.train_infos)
+        DatabaseBuilder(cfg, self.val_infos)
         self.augmentation = ChainedAugmentation(cfg)
         self.target_assigner = ProposalTargetAssigner(cfg)
 

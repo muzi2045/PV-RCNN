@@ -5,8 +5,10 @@ import torch
 from tqdm import tqdm
 from collections import defaultdict
 from itertools import compress
+from pathlib import Path
 
 from .kitti_utils import read_velo
+# from .nuscenes_dataset import 
 from pvrcnn.ops import box_iou_rotated
 from pvrcnn.core.geometry import (
     points_in_convex_polygon,
@@ -14,6 +16,27 @@ from pvrcnn.core.geometry import (
     PointsInCuboids,
 )
 
+def read_nu_lidar(item):
+    lidar_path = Path(item["lidar_path"])
+    points = np.fromfile(
+        str(lidar_path), dtype=np.float32, count=-1).reshape([-1, 5])
+    points[:, 3] /= 255
+    points[:, 4] = 0
+    sweep_points_list = [points]
+    ts = item["timestamp"] / 1e6
+    for sweep in item["sweeps"]:
+        points_sweep = np.fromfile(
+            str(sweep["lidar_path"]), dtype=np.float32,
+            count=-1).reshape([-1, 5])
+        sweep_ts = sweep["timestamp"] / 1e6
+        points_sweep[:, 3] /= 255
+        points_sweep[:, :3] = points_sweep[:, :3] @ sweep[
+            "sweep2lidar_rotation"].T
+        points_sweep[:, :3] += sweep["sweep2lidar_translation"]
+        points_sweep[:, 4] = ts - sweep_ts
+        sweep_points_list.append(points_sweep)
+    points = np.concatenate(sweep_points_list, axis=0)[:, [0, 1, 2, 4]]
+    return points
 
 class Augmentation:
 
@@ -229,7 +252,8 @@ class DatabaseBuilder:
 
     def _process_item(self, item):
         """Retrieve points in each box in scene."""
-        points = read_velo(item['velo_path'])
+        # points = read_velo(item['velo_path'])
+        points = read_nu_lidar(item)
         class_idx, boxes = item['class_idx'], item['boxes']
         points = PointsInCuboids(points)(boxes)
         keep = [len(p) > self.cfg.AUG.MIN_NUM_SAMPLE_PTS for p in points]

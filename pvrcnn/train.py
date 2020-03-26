@@ -10,14 +10,15 @@ from pvrcnn.detector import ProposalLoss, PV_RCNN, Second
 from pvrcnn.core import cfg, TrainPreprocessor, VisdomLinePlotter
 from pvrcnn.dataset import KittiDatasetTrain
 from pvrcnn.dataset import UDIDatasetTrain
+from pvrcnn.dataset import NuscenesDatasetTrain
 
 
 def build_train_dataloader(cfg, preprocessor):
     dataloader = DataLoader(
-        UDIDatasetTrain(cfg),
+        NuscenesDatasetTrain(cfg),
         collate_fn=preprocessor.collate,
         batch_size=cfg.TRAIN.BATCH_SIZE,
-        num_workers=1,
+        num_workers=2,
     )
     return dataloader
 
@@ -92,7 +93,7 @@ def build_lr_scheduler(optimizer, cfg, start_epoch, N):
     last_epoch = start_epoch * N / cfg.TRAIN.BATCH_SIZE
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, max_lr=0.01, steps_per_epoch=N,
-        epochs=cfg.TRAIN.EPOCHS, last_epoch=last_epoch)
+        epochs=cfg.TRAIN.EPOCHS, last_epoch=-1)
     return scheduler
 
 
@@ -105,6 +106,7 @@ def main():
     preprocessor = TrainPreprocessor(cfg)
     dataloader = build_train_dataloader(cfg, preprocessor)
     optimizer = torch.optim.Adam(parameters, lr=0.01)
+    # start_epoch = 0
     start_epoch = load_ckpt('./ckpts/epoch_10.pth', model, optimizer)
     scheduler = build_lr_scheduler(optimizer, cfg, start_epoch, len(dataloader))
     train_model(model, dataloader, optimizer,
@@ -118,5 +120,5 @@ if __name__ == '__main__':
         pass
     # global plotter
     # plotter = VisdomLinePlotter(env='training')
-    cfg.merge_from_file('../configs/UDI/all_class_lite.yaml')
+    cfg.merge_from_file('../configs/Nuscenes/all_class_lite.yaml')
     main()

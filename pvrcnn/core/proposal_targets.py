@@ -100,5 +100,5 @@ class ProposalTargetAssigner(nn.Module):
         boxes, class_idx, box_ignore = self.to_device(item)
         box_idx, G_cls = self.match_all_classes(boxes, class_idx, box_ignore)
         G_cls, M_cls = self.get_cls_targets(G_cls)
-        G_reg, M_reg = self.get_reg_targets(item['boxes'], box_idx, G_cls)
+        G_reg, M_reg = self.get_reg_targets(boxes, box_idx, G_cls)
         item.update(dict(G_cls=G_cls, G_reg=G_reg, M_cls=M_cls, M_reg=M_reg))

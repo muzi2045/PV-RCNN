@@ -22,6 +22,8 @@ def meshgrid_midpoint(*arrays):
 def torchify_anchor_attributes(cfg):
     attr = {}
     for key in ['wlh', 'center_z', 'yaw']:
+        # for anchor in cfg.ANCHORS:
+        #     print(f"{anchor[key]}")
         vals = [torch.tensor(anchor[key]) for anchor in cfg.ANCHORS]
         attr[key] = torch.stack(vals).float()
     return dict(attr)
