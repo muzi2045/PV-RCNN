@@ -164,7 +164,8 @@ class NuscenesDataset(Dataset):
             f"train scene: {len(train_scenes)}, val scene: {len(val_scenes)}")
         self.train_infos = dict()
         self.val_infos = dict()
-        index = 0
+        train_index = 0
+        val_index = 0
         
         for sample in tqdm(nusc.sample, desc="Generating train infos..."):
             lidar_token = sample["data"]["LIDAR_TOP"]
@@ -264,10 +265,12 @@ class NuscenesDataset(Dataset):
                 [a["num_radar_pts"] for a in annotations]
             )
             if sample["scene_token"] in train_scenes:
-                self.train_infos[index] = item
+                self.train_infos[train_index] = item
+                train_index += 1
             else:
-                self.val_infos[index] = item
-            index += 1
+                self.val_infos[val_index] = item
+                val_index += 1
+            # index += 1
         
 
     def filter_bad_objects(self, item):
